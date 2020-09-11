@@ -1,5 +1,8 @@
 var ERC721 = artifacts.require("erc721");
 
 module.exports = function (deployer) {
-  deployer.deploy(ERC721);
+  const name = "FirstToken";
+  const symbol = "FT";
+  const tokenURI = "TokenURI";
+  deployer.deploy(ERC721, name, symbol, tokenURI);
 };

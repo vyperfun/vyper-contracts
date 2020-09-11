@@ -1,21 +1,33 @@
 # @version ^0.2.0
 
 """
-@title ERC721 contract standard implementation
+@title ERC-721 Non-Fungible Token Standard, optional metadata extension
 @license MIT
-@author Ryuya Nakamura (@nrryuya)
-@notice ERC721 contract standard implementation
-@dev
-    Implementation of ERC-721 non-fungible token standard.
-    Modified from: https://github.com/vyperlang/vyper/blob/de74722bf2d8718cca46902be165f9fe0e3641dd/examples/tokens/ERC721.vy
+@author vasa (@vasa-develop)
+@notice ERC-721 Non-Fungible Token Standard, optional metadata extension
+@dev See https://eips.ethereum.org/EIPS/eip-721
+  Note: the ERC-165 identifier for this interface is 0x5b5e139f.
 """
 
 from vyper.interfaces import ERC721
 
 implements: ERC721
 
-# Interface for the contract called by safeTransferFrom()
+
+# @dev Note: the ERC-165 identifier for this interface is 0x150b7a02.
 interface ERC721Receiver:
+# @notice Handle the receipt of an NFT
+# @dev The ERC721 smart contract calls this function on the recipient
+#  after a `transfer`. This function MAY throw to revert and reject the
+#  transfer. Return of other than the magic value MUST result in the
+#  transaction being reverted.
+#  Note: the contract address is always the message sender.
+# @param _operator The address which called `safeTransferFrom` function
+# @param _from The address which previously owned the token
+# @param _tokenId The NFT identifier which is being transferred
+# @param _data Additional data with no specified format
+# @return `bytes4(keccak256("onERC721Received(address,address,uint256,bytes)"))`
+#  unless throwing
     def onERC721Received(
             _operator: address,
             _from: address,
@@ -58,6 +70,17 @@ event ApprovalForAll:
     operator: indexed(address)
     approved: bool
 
+# @notice A descriptive name for a collection of NFTs in this contract
+tokenName: String[64]
+
+# @notice An abbreviated name for NFTs in this contract
+tokenSymbol: String[32]
+
+# @notice A distinct Uniform Resource Identifier (URI) for a given asset.
+# @dev Throws if `_tokenId` is not a valid NFT. URIs are defined in RFC
+#   3986. The URI may point to a JSON file that conforms to the "ERC721
+#   Metadata JSON Schema".
+token_uri: String[64]
 
 # @dev Mapping from NFT ID to the address that owns it.
 idToOwner: HashMap[uint256, address]
@@ -80,17 +103,55 @@ supportedInterfaces: HashMap[bytes32, bool]
 # @dev ERC165 interface ID of ERC165
 ERC165_INTERFACE_ID: constant(bytes32) = 0x0000000000000000000000000000000000000000000000000000000001ffc9a7
 
-# @dev ERC165 interface ID of ERC721
+
+
+# @dev 
+#     ERC165 interface ID of ERC721
+# 
+#     bytes4(keccak256('balanceOf(address)')) == 0x70a08231
+#     bytes4(keccak256('ownerOf(uint256)')) == 0x6352211e
+#     bytes4(keccak256('approve(address,uint256)')) == 0x095ea7b3
+#     bytes4(keccak256('getApproved(uint256)')) == 0x081812fc
+#     bytes4(keccak256('setApprovalForAll(address,bool)')) == 0xa22cb465
+#     bytes4(keccak256('isApprovedForAll(address,address)')) == 0xe985e9c5
+#     bytes4(keccak256('transferFrom(address,address,uint256)')) == 0x23b872dd
+#     bytes4(keccak256('safeTransferFrom(address,address,uint256)')) == 0x42842e0e
+#     bytes4(keccak256('safeTransferFrom(address,address,uint256,bytes)')) == 0xb88d4fde
+# 
+#     => 0x70a08231 ^ 0x6352211e ^ 0x095ea7b3 ^ 0x081812fc ^
+#     0xa22cb465 ^ 0xe985e9c5 ^ 0x23b872dd ^ 0x42842e0e ^ 0xb88d4fde == 0x80ac58cd
+     
 ERC721_INTERFACE_ID: constant(bytes32) = 0x0000000000000000000000000000000000000000000000000000000080ac58cd
 
 
+# @dev  ERC165 interface ID of ERC721TokenReceiver
+
+ERC721_TOKEN_RECEIVER_INTERFACE_ID: constant(bytes32) = 0x00000000000000000000000000000000000000000000000000000000150b7a02
+
+
+# @dev 
+#     ERC165 interface ID of ERC721, optional metadata extension
+#     
+#     bytes4(keccak256('name()')) == 0x06fdde03
+#     bytes4(keccak256('symbol()')) == 0x95d89b41
+#     bytes4(keccak256('tokenURI(uint256)')) == 0xc87b56dd
+# 
+#     => 0x06fdde03 ^ 0x95d89b41 ^ 0xc87b56dd == 0x5b5e139f     
+
+ERC721_METADATA_INTERFACE_ID: constant(bytes32) = 0x000000000000000000000000000000000000000000000000000000005b5e139f
+
 @external
-def __init__():
+def __init__(name: String[64], symbol: String[32], tokenURI: String[64]):
     """
     @dev Contract constructor.
     """
+    self.tokenName = name
+    self.tokenSymbol = symbol
+    self.token_uri = tokenURI
     self.supportedInterfaces[ERC165_INTERFACE_ID] = True
     self.supportedInterfaces[ERC721_INTERFACE_ID] = True
+    self.supportedInterfaces[ERC721_TOKEN_RECEIVER_INTERFACE_ID] = True
+    self.supportedInterfaces[ERC721_METADATA_INTERFACE_ID] = True
     self.minter = msg.sender
 
 
@@ -102,6 +163,26 @@ def supportsInterface(_interfaceID: bytes32) -> bool:
     @param _interfaceID Id of the interface
     """
     return self.supportedInterfaces[_interfaceID]
+
+
+### METADATA FUNCTIONS ###
+
+@view
+@external
+def name() -> String[64]:
+    return self.tokenName
+
+
+@view
+@external
+def symbol() -> String[32]:
+    return self.tokenSymbol
+
+
+@view
+@external
+def tokenURI() -> String[64]:
+    return self.token_uri
 
 
 ### VIEW FUNCTIONS ###
@@ -347,6 +428,7 @@ def mint(_to: address, _tokenId: uint256) -> bool:
     assert _to != ZERO_ADDRESS
     # Add NFT. Throws if `_tokenId` is owned by someone
     self._addTokenTo(_to, _tokenId)
+    
     log Transfer(ZERO_ADDRESS, _to, _tokenId)
     return True
 
